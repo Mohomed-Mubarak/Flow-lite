@@ -54,9 +54,41 @@ create table if not exists api_keys (
   expires_at timestamptz
 );
 
+-- Knowledge base for RAG (Vector Store node + Knowledge Base Tool on the AI Agent).
+create extension if not exists vector;
+
+create table if not exists vector_documents (
+  id uuid primary key default gen_random_uuid(),
+  workflow_id uuid references workflows(id) on delete cascade,
+  store text not null,
+  content text not null,
+  metadata jsonb not null default '{}',
+  embedding vector, -- no fixed size: different embedding models have different dimensions
+  created_at timestamptz not null default now()
+);
+create index if not exists vector_documents_store_idx on vector_documents (workflow_id, store);
+
+-- Cosine-similarity search used by the Knowledge Base Tool. Safe to re-run; replaces itself.
+create or replace function match_vector_documents(
+  query_embedding vector,
+  match_workflow_id uuid,
+  match_store text,
+  match_count int default 5
+)
+returns table (id uuid, content text, metadata jsonb, similarity float)
+language sql stable
+as $$
+  select id, content, metadata, 1 - (embedding <=> query_embedding) as similarity
+  from vector_documents
+  where workflow_id = match_workflow_id and store = match_store and embedding is not null
+  order by embedding <=> query_embedding
+  limit least(greatest(match_count, 1), 50);
+$$;
+
 -- Server uses the service-role key; lock everything else out.
 alter table workflows enable row level security;
 alter table credentials enable row level security;
 alter table executions enable row level security;
 alter table chat_memory enable row level security;
 alter table api_keys enable row level security;
+alter table vector_documents enable row level security;

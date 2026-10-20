@@ -243,6 +243,17 @@ export const NODES: NodeDef[] = [
       { name: 'maxIterations', label: 'Max tool rounds', type: 'number', default: 8, hint: 'Stops the agent from looping. A run must finish in 60 seconds.' },
       { name: 'returnSteps', label: 'Return tool steps', type: 'boolean', default: false },
     ] },
+  { type: 'vectorStore', label: 'Vector Store', group: 'ai', description: 'Save text as searchable knowledge (RAG), using AI embeddings. Read it back with a Knowledge Base Tool on an AI Agent.', inputs: 1, outputs: 1, credentialTypes: AI_CRED_TYPES,
+    params: [
+      { name: 'operation', label: 'Operation', type: 'select', default: 'Insert', options: ['Insert', 'Clear store'] },
+      { name: 'store', label: 'Store name', type: 'string', default: 'default', hint: 'Documents are grouped by this name, scoped to this workflow. A Knowledge Base Tool reads the same name.' },
+      { name: 'model', label: 'Embedding model', type: 'string', model: true, showIf: { param: 'operation', equals: 'Insert' },
+        hint: 'Must be an embeddings model for the chosen credential: text-embedding-3-small (OpenAI), text-embedding-004 (Gemini), mistral-embed (Mistral), nvidia/nv-embedqa-e5-v5 (NVIDIA NIM). Claude has no embeddings API.' },
+      { name: 'text', label: 'Text', type: 'text', default: '{{ $json.text }}', showIf: { param: 'operation', equals: 'Insert' } },
+      { name: 'metadata', label: 'Metadata (optional)', type: 'json', default: '', showIf: { param: 'operation', equals: 'Insert' }, hint: 'Saved alongside every chunk from this item, e.g. { "source": "{{ $json.url }}" }.' },
+      { name: 'chunkSize', label: 'Chunk size (characters)', type: 'number', default: 1000, showIf: { param: 'operation', equals: 'Insert' } },
+      { name: 'chunkOverlap', label: 'Chunk overlap (characters)', type: 'number', default: 150, showIf: { param: 'operation', equals: 'Insert' } },
+    ] },
   { type: 'openai', label: 'OpenAI (legacy)', group: 'ai', description: 'Use AI Chat instead.', inputs: 1, outputs: 1, credentialTypes: ['openai'], hidden: true,
     params: [
       { name: 'model', label: 'Model', type: 'string', default: 'gpt-4o-mini', model: true },
@@ -354,6 +365,14 @@ export const NODES: NodeDef[] = [
       { name: 'toolName', label: 'Tool name', type: 'string', default: 'run_code', hint: 'Letters, numbers and underscores.' },
       { name: 'toolDescription', label: 'Description', type: 'text', default: 'Runs a custom function on a text input.', hint: 'Tell the model when to use this tool and what to pass.' },
       { name: 'code', label: 'JavaScript', type: 'code', default: '// input = the text the model passes in\nreturn input.toUpperCase();' },
+    ] },
+  { type: 'toolKnowledgeBase', label: 'Knowledge Base Tool', group: 'sub', description: 'RAG: lets the agent search a Vector Store for relevant passages before answering.', inputs: 0, outputs: 0, slot: 'tool', credentialTypes: AI_CRED_TYPES,
+    params: [
+      { name: 'toolName', label: 'Tool name', type: 'string', default: 'search_knowledge_base', hint: 'Letters, numbers and underscores.' },
+      { name: 'toolDescription', label: 'Description', type: 'text', placeholder: 'Searches the product manual for relevant sections.', hint: 'Tell the model when to use this tool. Leave empty for a generic description.' },
+      { name: 'store', label: 'Store name', type: 'string', default: 'default', hint: 'Must match the store name used by a Vector Store node.' },
+      { name: 'model', label: 'Embedding model', type: 'string', model: true, hint: 'Use the same embedding model that filled this store. Claude has no embeddings API.' },
+      { name: 'topK', label: 'Results to return', type: 'number', default: 4 },
     ] },
 
   // ---- Data ----

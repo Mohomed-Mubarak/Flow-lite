@@ -7,6 +7,7 @@ import type { Ctx, Sub } from './runners';
 import { McpClient, cleanSchema } from './mcp';
 import { extraTool } from './agentTools';
 import { appTools } from './appTools';
+import { knowledgeBaseTool } from './rag';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 type Tool = {
@@ -141,7 +142,7 @@ async function mcpTools(s: Sub, scope: Scope, used: Set<string>, closers: Closer
   }));
 }
 
-async function buildTools(subs: Sub[], scope: Scope, closers: Closer[]): Promise<Tool[]> {
+async function buildTools(subs: Sub[], scope: Scope, closers: Closer[], workflowId: string | undefined): Promise<Tool[]> {
   const used = new Set<string>();
   const tools: Tool[] = [];
   for (const s of subs) {
@@ -152,6 +153,8 @@ async function buildTools(subs: Sub[], scope: Scope, closers: Closer[]): Promise
       tools.push(extra);
     } else if (apps) {
       tools.push(...apps);
+    } else if (s.type === 'toolKnowledgeBase') {
+      tools.push(knowledgeBaseTool(s, scope, workflowId, nm));
     } else if (s.type === 'toolMcp') {
       tools.push(...(await mcpTools(s, scope, used, closers)));
     } else if (s.type === 'toolCalculator') {
@@ -367,7 +370,7 @@ export async function agentRun(c: Ctx): Promise<Item[][]> {
     if (!prompt.trim()) throw new Error('The prompt is empty. Check the Prompt field of the agent.');
     const closers: Closer[] = [];
     let tools: Tool[];
-    try { tools = await buildTools(toolSubs, scope, closers); }
+    try { tools = await buildTools(toolSubs, scope, closers, c.workflowId); }
     catch (e) { await Promise.all(closers.map((f) => f())); throw e; }
 
     let session = '';

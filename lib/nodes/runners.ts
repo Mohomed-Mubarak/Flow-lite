@@ -13,6 +13,7 @@ import { dataRunners } from './dataNodes';
 import { gmailRunners } from './gmail';
 import { bloggerRunners } from './blogger';
 import { mcpRunners } from './mcpNode';
+import { ragRunners } from './rag';
 
 /** A sub-node plugged into an agent socket. */
 export type Sub = { type: string; name: string; params: Record<string, any>; cred: Record<string, any> | null };
@@ -241,6 +242,7 @@ export const runners: Record<string, Runner> = {
   ...gmailRunners,
   ...bloggerRunners,
   ...mcpRunners,
+  ...ragRunners,
 };
 
 // ---- AI ----

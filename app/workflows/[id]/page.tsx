@@ -18,6 +18,17 @@ import CredentialForm from '@/components/CredentialForm';
 import { preview as previewExpr, type Preview } from '@/lib/preview';
 import { tidyLayout, type Pos } from '@/lib/layout';
 
+// Clipboard is mirrored to localStorage so Copy in one workflow can Paste into another (or a later visit).
+const CLIP_KEY = 'flowlite-clipboard';
+type Clip = { nodes: Node[]; edges: Edge[] };
+function readStoredClip(): Clip | null {
+  try {
+    const raw = localStorage.getItem(CLIP_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return Array.isArray(p?.nodes) ? { nodes: p.nodes, edges: Array.isArray(p.edges) ? p.edges : [] } : null;
+  } catch { return null; }
+}
 
 function Field({ p, value, onChange, pv }: { p: ParamDef; value: any; onChange: (v: any) => void; pv?: Preview | null }) {
   const [over, setOver] = useState(false);
@@ -76,6 +87,10 @@ function Editor() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [view, setView] = useState<'editor' | 'executions'>('editor');
   const [chatOpen, setChatOpen] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'node' | 'selection' | 'pane' } | null>(null);
+  const [copiedEmbed, setCopiedEmbed] = useState<'script' | 'iframe' | null>(null);
+  const [hasClip, setHasClip] = useState(false);
+  useEffect(() => { setHasClip(!!readStoredClip()); }, []);
 
   useEffect(() => {
     fetch(`/api/workflows/${id}`).then((r) => r.json()).then((w) => {
@@ -208,12 +223,19 @@ function Editor() {
   function copySelected() {
     if (!selected.length) return false;
     const ids = new Set(selected.map((n) => n.id));
-    clip.current = { nodes: selected.map((n) => ({ ...n, data: structuredClone(n.data) as any })), edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)), bump: 0 };
+    const payload: Clip = { nodes: selected.map((n) => ({ ...n, data: structuredClone(n.data) as any })), edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)) };
+    clip.current = { ...payload, bump: 0 };
+    try { localStorage.setItem(CLIP_KEY, JSON.stringify(payload)); setHasClip(true); } catch { /* storage blocked */ }
     return true;
   }
+  /** Copy may have happened in another workflow (or an earlier visit here): fall back to the stored clipboard. */
   function pasteCopied() {
-    const c = clip.current;
-    if (!c) return;
+    let c = clip.current;
+    if (!c) {
+      const stored = readStoredClip();
+      if (!stored) return;
+      c = clip.current = { ...stored, bump: 0 };
+    }
     c.bump += 1;
     const map = new Map<string, string>();
     const taken = new Set(nodes.map((n) => String((n.data as any).name)));
@@ -236,16 +258,17 @@ function Editor() {
     setEdges((es) => es.filter((e) => !ids.has(e.source) && !ids.has(e.target)));
     setSel(null); setOpen(false);
   }
-  // Keyboard: Ctrl/Cmd + A select all, C copy, V paste, D duplicate. Ignored while typing or when a node screen is open.
+  // Keyboard: Ctrl/Cmd + A select all, C copy, V paste (also from another workflow), D duplicate. Escape closes the right-click menu.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && menu) { setMenu(null); return; }
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const t = e.target as HTMLElement | null;
       if (open || t?.closest('input, textarea, select, [contenteditable="true"], .chatdock')) return;
       const k = e.key.toLowerCase();
       if (k === 'a') { e.preventDefault(); setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))); }
       else if (k === 'c') { if (copySelected()) e.preventDefault(); }
-      else if (k === 'v') { if (clip.current) { e.preventDefault(); pasteCopied(); } }
+      else if (k === 'v') { if (clip.current || hasClip) { e.preventDefault(); pasteCopied(); } }
       else if (k === 'd') { if (copySelected()) { e.preventDefault(); pasteCopied(); } }
     };
     window.addEventListener('keydown', onKey);
@@ -451,6 +474,7 @@ function Editor() {
             <button className="btn" onClick={deleteSelected} title="Delete the selected nodes (Delete)">Delete</button>
           </>
         )}
+        <button className="btn" onClick={pasteCopied} disabled={!clip.current && !hasClip} title="Paste the copied nodes (Ctrl+V) — works even if they were copied from another workflow">Paste</button>
         <button className="btn" onClick={tidyUp} disabled={!nodes.length} title={selected.length > 1 ? 'Arrange only the selected nodes' : 'Arrange the nodes in a clean left-to-right order'}>{selected.length > 1 ? 'Tidy selection' : 'Tidy up'}</button>
         {undoPos && <button className="btn" onClick={undoTidy} title="Put the nodes back where they were">Undo tidy</button>}
         <button className="btn" onClick={save} disabled={busy}>Save</button>
@@ -497,6 +521,14 @@ function Editor() {
             fitView fitViewOptions={{ maxZoom: 1 }} deleteKeyCode={['Backspace', 'Delete']}
             selectionOnDrag={mode === 'select'} panOnDrag={mode === 'select' ? [1, 2] : true} selectionMode={SelectionMode.Partial}
             multiSelectionKeyCode={['Meta', 'Control']} selectNodesOnDrag={false}
+            onNodeContextMenu={(e, n) => {
+              e.preventDefault();
+              const alreadyMulti = n.selected && selected.length > 1;
+              if (!alreadyMulti) setNodes((ns) => ns.map((x) => ({ ...x, selected: x.id === n.id })));
+              setMenu({ x: e.clientX, y: e.clientY, kind: alreadyMulti ? 'selection' : 'node' });
+            }}
+            onSelectionContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, kind: 'selection' }); }}
+            onPaneContextMenu={(e) => { e.preventDefault(); const ev = e as MouseEvent; setMenu({ x: ev.clientX, y: ev.clientY, kind: 'pane' }); }}
           >
             <Panel position="top-left">
               <div className="modebar" role="group" aria-label="Canvas mode">
@@ -522,6 +554,46 @@ function Editor() {
                 onReply={onChatReply} onClose={() => setChatOpen(false)}
               />
             </div>
+          )}
+          {menu && (
+            <>
+              <div className="ctxbackdrop" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+              <div className="ctxmenu" style={{ left: menu.x, top: menu.y }} onContextMenu={(e) => e.preventDefault()}>
+                {menu.kind !== 'pane' ? (
+                  <>
+                    <button onClick={() => { copySelected(); setMenu(null); }}>
+                      <span>Copy{selected.length > 1 ? ` ${selected.length} nodes` : ''}</span><span className="mute">Ctrl C</span>
+                    </button>
+                    <button onClick={() => { if (copySelected()) pasteCopied(); setMenu(null); }}>
+                      <span>Duplicate{selected.length > 1 ? ` ${selected.length} nodes` : ''}</span><span className="mute">Ctrl D</span>
+                    </button>
+                  </>
+                ) : (
+                  <button disabled={!clip.current && !hasClip} onClick={() => { pasteCopied(); setMenu(null); }}>
+                    <span>Paste</span><span className="mute">Ctrl V</span>
+                  </button>
+                )}
+                <div className="ctxsep" />
+                <button disabled={!nodes.length} onClick={() => { tidyUp(); setMenu(null); }}>
+                  <span>{selected.length > 1 ? 'Tidy up selection' : 'Tidy up'}</span><span className="mute">⇧ Alt T</span>
+                </button>
+                <div className="ctxsep" />
+                <button onClick={() => { setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))); setMenu(null); }}>
+                  <span>Select all</span><span className="mute">Ctrl A</span>
+                </button>
+                <button disabled={!selected.length} onClick={() => { setNodes((ns) => ns.map((n) => ({ ...n, selected: false }))); setMenu(null); }}>
+                  <span>Clear selection</span>
+                </button>
+                {menu.kind !== 'pane' && (
+                  <>
+                    <div className="ctxsep" />
+                    <button className="danger" onClick={() => { deleteSelected(); setMenu(null); }}>
+                      <span>Delete{selected.length > 1 ? ` ${selected.length} nodes` : ''}</span><span className="mute">Del</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -619,10 +691,30 @@ function Editor() {
                 <div className="note">Live URL:<br /><span className="mono">{window.location.origin}{def.urlPrefix}{d.params.path || ''}</span>
                   <div className="mute">Works after you turn the workflow Active.</div></div>
               )}
-              {def.type === 'chatTrigger' && d.params.public === true && typeof window !== 'undefined' && (
-                <div className="note">Public chat:<br /><span className="mono">{window.location.origin}/chat/{d.params.path || 'chat'}</span>
-                  <div className="mute">Works after you turn the workflow Active. Anyone with the link can use your AI credits.</div></div>
-              )}
+              {def.type === 'chatTrigger' && d.params.public === true && typeof window !== 'undefined' && (() => {
+                const origin = window.location.origin;
+                const path = d.params.path || 'chat';
+                const chatUrl = `${origin}/chat/${path}`;
+                const scriptTag = `<script src="${origin}/api/chat/${path}/widget.js" async></script>`;
+                const iframeTag = `<iframe src="${chatUrl}" style="width:100%;max-width:400px;height:600px;border:0;border-radius:14px" title="Chat"></iframe>`;
+                const copy = async (text: string, which: 'script' | 'iframe') => {
+                  try { await navigator.clipboard.writeText(text); setCopiedEmbed(which); setTimeout(() => setCopiedEmbed(null), 1500); } catch { /* clipboard blocked */ }
+                };
+                return (
+                  <>
+                    <div className="note">Public chat:<br /><span className="mono">{chatUrl}</span>
+                      <div className="mute">Works after you turn the workflow Active. Anyone with the link can use your AI credits.</div></div>
+                    <div className="note">
+                      Embed as a floating chat bubble on your website — one script tag, works on any site:
+                      <div className="mono" style={{ wordBreak: 'break-all', marginTop: 4 }}>{scriptTag}</div>
+                      <div style={{ marginTop: 6 }}><button className="btn sm" onClick={() => copy(scriptTag, 'script')}>{copiedEmbed === 'script' ? 'Copied' : 'Copy'}</button></div>
+                      <div className="mute" style={{ marginTop: 10 }}>Or place the chat inline on a page instead of a floating bubble:</div>
+                      <div className="mono" style={{ wordBreak: 'break-all', marginTop: 4 }}>{iframeTag}</div>
+                      <div style={{ marginTop: 6 }}><button className="btn sm" onClick={() => copy(iframeTag, 'iframe')}>{copiedEmbed === 'iframe' ? 'Copied' : 'Copy'}</button></div>
+                    </div>
+                  </>
+                );
+              })()}
               <p className="hint">Drag a field from the Input panel into a text parameter, or type {'{{ $json.field }}'} or {'{{ $node["Name"].json.field }}'}.</p>
             </>
           }

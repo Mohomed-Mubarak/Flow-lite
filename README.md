@@ -3,7 +3,7 @@
 Light n8n-style automation for Vercel. Next.js + React Flow + Supabase.
 
 ## Setup
-1. Supabase: run `supabase/schema.sql` in the SQL editor. Updating? Run it again. It is safe to repeat, and it adds the `chat_memory` and `api_keys` tables.
+1. Supabase: run `supabase/schema.sql` in the SQL editor. Updating? Run it again. It is safe to repeat, and it adds the `chat_memory`, `api_keys` and `vector_documents` tables (the last one enables the `vector` extension for the knowledge base / RAG feature).
 2. `cp .env.example .env.local` and fill every value.
 3. `npm i && npm run dev`
 4. Deploy: push to GitHub, import in Vercel, add the same env vars.
@@ -11,7 +11,10 @@ Light n8n-style automation for Vercel. Next.js + React Flow + Supabase.
 ## What it has
 - Visual editor: drag-connect nodes, run, inspect each node's output. Light and dark theme.
 - 9 triggers: Manual, Webhook, Form (public page), Chat (test panel or public page), Telegram, GitHub, Stripe, Schedule (cron), Interval.
-- AI Agent with sockets: Chat Model, Memory, Tools. Calculator, HTTP Request Tool, Code Tool and MCP Client Tool included.
+- AI Agent with sockets: Chat Model, Memory, Tools. Calculator, HTTP Request Tool, Code Tool, MCP Client Tool and Knowledge Base Tool (RAG) included.
+- Knowledge base (RAG): a Vector Store node embeds and saves text; a Knowledge Base Tool on an AI Agent searches it back. Works with any provider that has an embeddings API (not Claude).
+- Embeddable web chatbot: turn a Chat Trigger's "Make chat publicly available" on and copy a one-line `<script>` tag that drops a floating chat bubble onto any website, or an `<iframe>` tag to place it inline instead.
+- Editor: copy and paste nodes between workflows (not just within one) — Ctrl+C in one workflow, Ctrl+V (or the Paste button) in another. Right-click a node, a selection, or empty canvas for a context menu (copy, duplicate, paste, tidy up, select all, delete).
 - Executions tab in the editor: past runs of this workflow, colored graph, per-node output.
 - AI Chat and AI Extract work with any provider:
   Groq, Google Gemini, OpenRouter, Mistral, Cerebras, NVIDIA NIM, Hugging Face (all with free tiers),
@@ -37,8 +40,10 @@ Light n8n-style automation for Vercel. Next.js + React Flow + Supabase.
 - More nodes: Switch (4 rules + fallback), No Operation, Stop and Error, Sort, Remove Duplicates, Summarize, Date & Time, Crypto, RSS Read, GitHub (issues), Airtable, Twilio SMS, Supabase (rows). Each app node has its own credential type.
 - Even more nodes: Notion, Google Sheets (service account), Send Email (SMTP), WhatsApp (Cloud API), Execute Workflow, AI Classify, Rename Keys, Remove Fields. Agent tools: Wikipedia, Web Search (Tavily), Web Page Reader, Date & Time. Run `npm install` after updating (adds nodemailer).
 - Email and Google: Send Email (SMTP) can reply in a thread and attach files by link. Send Email (Resend) has cc, bcc, reply-to, text or HTML, attachments and delivery lookup. Email Read (IMAP) reads, marks, moves and deletes mail. Google Sheets has 10 actions (append or update, delete rows, clear, create tab, create spreadsheet and more). Google Drive and Google Calendar use the same service account credential. CSV, HTML Extract and XML nodes. Run `npm install` (adds imapflow, mailparser, cheerio, fast-xml-parser).
-- Agent tools: Gmail, Blogger, Google Sheets, Google Calendar, Notion, GitHub, Airtable, Telegram message, Call Workflow (any workflow as a tool), Think. Tools that change things have an "Allow ..." switch, off by default for sending email, publishing posts and editing. Gmail and Blogger use the Google OAuth credential (client ID, secret, refresh token from the OAuth Playground; see the note on the credential). Gmail, Blogger and MCP Client are also normal nodes.
-- Editor: drag on empty canvas to select several nodes (Select mode), or switch to Pan. Double-click a node to open it. Ctrl/Cmd+A select all, C copy, V paste, D duplicate, Delete removes. Tidy up arranges only the selection when 2+ nodes are selected.
+- Agent tools: Gmail, Blogger, Google Sheets, Google Calendar, Notion, GitHub, Airtable, Telegram message, Call Workflow (any workflow as a tool), Think, Knowledge Base (RAG). Tools that change things have an "Allow ..." switch, off by default for sending email, publishing posts and editing. Gmail and Blogger use the Google OAuth credential (client ID, secret, refresh token from the OAuth Playground; see the note on the credential). Gmail, Blogger and MCP Client are also normal nodes.
+- Knowledge base (RAG): add a Vector Store node to embed and save text (operation Insert, with chunking), then a Knowledge Base Tool on an AI Agent to search it back by meaning. Both point at the same "store" name, scoped to the workflow. Needs an AI credential with an embeddings API — OpenAI, Gemini, Mistral, NVIDIA NIM, DeepSeek, Hugging Face and Ollama all work; Claude does not. Run `supabase/schema.sql` again first (adds the `vector_documents` table and enables the `vector` extension).
+- Embeddable chatbot: once a Chat Trigger's chat is public and the workflow is Active, the node panel shows a `<script>` tag (floating bubble, any website) and an `<iframe>` tag (inline) with a one-click copy button.
+- Editor: drag on empty canvas to select several nodes (Select mode), or switch to Pan. Double-click a node to open it. Right-click a node, a selection, or empty canvas for a menu (copy, duplicate, paste, tidy up, select all, delete). Ctrl/Cmd+A select all, C copy, V paste, D duplicate, Delete removes. Copy and paste work across workflows too — copy in one, paste in another (or later, in the same one). Tidy up arranges only the selection when 2+ nodes are selected.
 - Editor: Auto-save (on by default, 1.2s after each change; run status and selection are not saved). "Tidy up" arranges nodes left to right, branches in output order, agent sub-nodes under their sockets. "Undo tidy" restores the old positions.
 - MCP Client Tool: point it at a Streamable HTTP MCP server URL. Every tool the server lists becomes an agent tool. Use "Tools to include" to limit them. Bearer tokens go in an HTTP Bearer credential.
 - HTTP Request Tool: the host must be fixed. Only the path and query take `{placeholders}`, and the values are URL-encoded.
@@ -107,7 +112,7 @@ Security notes: keys are random 256-bit values, stored as SHA-256 hashes. The ad
   A "404 Not Found" delivery error means the workflow was not Active when Telegram called.
 - GitHub and Stripe verify signatures when you attach a "Webhook signing secret" credential.
 - Form: public page at `/form/<path>`.
-- Chat: test panel in the editor, or public page at `/chat/<path>` when made public.
+- Chat: test panel in the editor, or public page at `/chat/<path>` when made public. Embed it on another site with the `<script>` or `<iframe>` snippet shown on the node (see Chat and AI Agent above).
 
 ## Scheduling
 Vercel Hobby cannot run per-minute crons. Pick one:
