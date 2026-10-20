@@ -239,3 +239,11 @@ pre { margin: 6px 0 0; padding: 10px; background: var(--input); border: 1px soli
 /* multi-select parameter */
 .ms { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); }
 .ms-i { display: flex; align-items: center; gap: 8px; padding: 3px 2px; cursor: pointer; }
+
+/* Selection box and mode switch */
+.react-flow__selection { background: rgba(59, 130, 246, .08); border: 1px solid #3b82f6; border-radius: 2px; }
+.react-flow__nodesselection-rect { background: rgba(59, 130, 246, .05); border: 1px dashed rgba(59, 130, 246, .7); border-radius: 4px; }
+.modebar { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.modebar button { border: 0; background: transparent; color: var(--ink); padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.modebar button.on { background: var(--ink); color: var(--panel); }
+.modebar button:focus-visible { outline: 2px solid #3b82f6; outline-offset: -2px; }

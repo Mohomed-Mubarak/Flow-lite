@@ -4,17 +4,17 @@ import type { Item } from '../types';
 import type { Ctx, Runner } from './runners';
 import { compare } from './util';
 
-const getPath = (obj: any, path: string): any => path.split('.').filter(Boolean).reduce((o, k) => (o == null ? undefined : o[k]), obj);
-const str = (c: Ctx, n: string, i: number) => { const v = c.param(n, i); return v == null ? '' : String(v).trim(); };
-const need = (c: Ctx, key: string, what: string): string => {
+export const getPath = (obj: any, path: string): any => path.split('.').filter(Boolean).reduce((o, k) => (o == null ? undefined : o[k]), obj);
+export const str = (c: Ctx, n: string, i: number) => { const v = c.param(n, i); return v == null ? '' : String(v).trim(); };
+export const need = (c: Ctx, key: string, what: string): string => {
   const v = c.cred?.[key];
   if (!v) throw new Error(`Select a ${what} credential on this node`);
   return String(v);
 };
 const SAFE = /^[A-Za-z0-9_.-]+$/;
-const requireSafe = (v: string, what: string) => { if (!SAFE.test(v)) throw new Error(`${what} is empty or has characters that are not allowed: "${v}"`); return v; };
+export const requireSafe = (v: string, what: string) => { if (!SAFE.test(v)) throw new Error(`${what} is empty or has characters that are not allowed: "${v}"`); return v; };
 
-async function api(label: string, url: string, init: RequestInit): Promise<any> {
+export async function api(label: string, url: string, init: RequestInit): Promise<any> {
   let res: Response;
   try { res = await fetch(url, { ...init, signal: AbortSignal.timeout(25000) }); }
   catch (e: any) { throw new Error(e?.name === 'TimeoutError' ? `${label} did not answer in time` : `${label}: ${e.message}`); }
@@ -29,7 +29,7 @@ async function api(label: string, url: string, init: RequestInit): Promise<any> 
 }
 
 /** Runs fn for each item and collects one output list. Arrays returned become several items. */
-const each = (fn: (c: Ctx, i: number) => Promise<any>): Runner => async (c) => {
+export const each = (fn: (c: Ctx, i: number) => Promise<any>): Runner => async (c) => {
   const out: Item[] = [];
   for (let i = 0; i < c.items.length; i++) {
     const r = await fn(c, i);
@@ -43,7 +43,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const UNIT_MS: Record<string, number> = { seconds: 1e3, minutes: 6e4, hours: 36e5, days: 864e5, weeks: 6048e5 };
 
-function toDate(v: any): Date {
+export function toDate(v: any): Date {
   if (v === '' || v == null) return new Date();
   if (v instanceof Date) return v;
   const s = String(v).trim();

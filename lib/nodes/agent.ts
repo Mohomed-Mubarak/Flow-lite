@@ -5,6 +5,8 @@ import { CREDENTIAL_TYPES } from './catalog';
 import type { Item } from '../types';
 import type { Ctx, Sub } from './runners';
 import { McpClient, cleanSchema } from './mcp';
+import { extraTool } from './agentTools';
+import { appTools } from './appTools';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 type Tool = {
@@ -143,7 +145,14 @@ async function buildTools(subs: Sub[], scope: Scope, closers: Closer[]): Promise
   const used = new Set<string>();
   const tools: Tool[] = [];
   for (const s of subs) {
-    if (s.type === 'toolMcp') {
+    const nm = (raw: unknown, fb: string) => toolName(raw, fb, used);
+    const extra = extraTool(s, nm);
+    const apps = extra ? undefined : appTools(s, scope, nm);
+    if (extra) {
+      tools.push(extra);
+    } else if (apps) {
+      tools.push(...apps);
+    } else if (s.type === 'toolMcp') {
       tools.push(...(await mcpTools(s, scope, used, closers)));
     } else if (s.type === 'toolCalculator') {
       tools.push({

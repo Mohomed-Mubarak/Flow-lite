@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Panel, addEdge,
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Panel, SelectionMode, addEdge,
   useNodesState, useEdgesState, useReactFlow, type Node, type Edge, type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -62,6 +62,11 @@ function Editor() {
   const [auto, setAuto] = useState(true);
   const [saveState, setSaveState] = useState<{ s: 'idle' | 'saving' | 'saved' | 'error'; at?: string }>({ s: 'idle' });
   const [undoPos, setUndoPos] = useState<Pos | null>(null);
+  // Drag on empty canvas draws a selection box (Select). Hand mode pans instead. Touch screens start in Hand mode.
+  const [mode, setMode] = useState<'select' | 'pan'>('select');
+  useEffect(() => { if (window.matchMedia?.('(pointer: coarse)').matches) setMode('pan'); }, []);
+  const clip = useRef<{ nodes: Node[]; edges: Edge[]; bump: number } | null>(null);
+  const selected = nodes.filter((n) => n.selected);
   const { fitView } = useReactFlow();
   const [results, setResults] = useState<Record<string, any>>({});
   const [msg, setMsg] = useState('');
@@ -200,12 +205,66 @@ function Editor() {
     return () => { window.removeEventListener('pagehide', flushNow); flushNow(); };
   }, [id]);
 
+  function copySelected() {
+    if (!selected.length) return false;
+    const ids = new Set(selected.map((n) => n.id));
+    clip.current = { nodes: selected.map((n) => ({ ...n, data: structuredClone(n.data) as any })), edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)), bump: 0 };
+    return true;
+  }
+  function pasteCopied() {
+    const c = clip.current;
+    if (!c) return;
+    c.bump += 1;
+    const map = new Map<string, string>();
+    const taken = new Set(nodes.map((n) => String((n.data as any).name)));
+    const fresh = c.nodes.map((n) => {
+      const nid = rid(); map.set(n.id, nid);
+      const base = String((n.data as any).name);
+      let name = `${base} copy`, k = 2;
+      while (taken.has(name)) name = `${base} copy ${k++}`;
+      taken.add(name);
+      return { ...n, id: nid, selected: true, position: { x: n.position.x + 40 * c.bump, y: n.position.y + 40 * c.bump }, data: { ...(n.data as any), name, status: undefined } } as Node;
+    });
+    const wires = c.edges.map((e) => decorate({ id: rid(), source: map.get(e.source)!, target: map.get(e.target)!, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }));
+    setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), ...fresh]);
+    setEdges((es) => [...es, ...wires]);
+  }
+  function deleteSelected() {
+    const ids = new Set(selected.map((n) => n.id));
+    if (!ids.size) return;
+    setNodes((ns) => ns.filter((n) => !ids.has(n.id)));
+    setEdges((es) => es.filter((e) => !ids.has(e.source) && !ids.has(e.target)));
+    setSel(null); setOpen(false);
+  }
+  // Keyboard: Ctrl/Cmd + A select all, C copy, V paste, D duplicate. Ignored while typing or when a node screen is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (open || t?.closest('input, textarea, select, [contenteditable="true"], .chatdock')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'a') { e.preventDefault(); setNodes((ns) => ns.map((n) => ({ ...n, selected: true }))); }
+      else if (k === 'c') { if (copySelected()) e.preventDefault(); }
+      else if (k === 'v') { if (clip.current) { e.preventDefault(); pasteCopied(); } }
+      else if (k === 'd') { if (copySelected()) { e.preventDefault(); pasteCopied(); } }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   function tidyUp() {
     const size = (n: Node) => {
       const agent = !!getDef((n.data as any).type)?.slots;
       return { w: n.measured?.width ?? n.width ?? (agent ? 280 : 170), h: n.measured?.height ?? n.height ?? (agent ? 110 : 64) };
     };
-    const pos = tidyLayout(nodes.map((n) => ({ id: n.id, type: (n.data as any).type, x: n.position.x, y: n.position.y, ...size(n) })), edges);
+    const part = selected.length > 1 ? selected : nodes;
+    const pos = tidyLayout(part.map((n) => ({ id: n.id, type: (n.data as any).type, x: n.position.x, y: n.position.y, ...size(n) })), edges);
+    if (part !== nodes) {
+      // Keep the tidied group where it was on the canvas.
+      const ox = Math.min(...part.map((n) => n.position.x)) - Math.min(...Object.values(pos).map((p) => p.x));
+      const oy = Math.min(...part.map((n) => n.position.y)) - Math.min(...Object.values(pos).map((p) => p.y));
+      for (const p of Object.values(pos)) { p.x += ox; p.y += oy; }
+    }
     setUndoPos(Object.fromEntries(nodes.map((n) => [n.id, n.position])));
     setNodes((ns) => ns.map((n) => (pos[n.id] ? { ...n, position: pos[n.id] } : n)));
     setMsg('Tidied up');
@@ -385,7 +444,14 @@ function Editor() {
           <button role="tab" aria-selected={view === 'executions'} className={view === 'executions' ? 'on' : ''} onClick={() => setView('executions')}>Executions</button>
         </div>
         <input className="nm" type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label="Workflow name" />
-        <button className="btn" onClick={tidyUp} disabled={!nodes.length} title="Arrange the nodes in a clean left-to-right order">Tidy up</button>
+        {selected.length > 1 && (
+          <>
+            <span className="mute">{selected.length} selected</span>
+            <button className="btn" onClick={() => { if (copySelected()) pasteCopied(); }} title="Duplicate the selected nodes (Ctrl+D)">Duplicate</button>
+            <button className="btn" onClick={deleteSelected} title="Delete the selected nodes (Delete)">Delete</button>
+          </>
+        )}
+        <button className="btn" onClick={tidyUp} disabled={!nodes.length} title={selected.length > 1 ? 'Arrange only the selected nodes' : 'Arrange the nodes in a clean left-to-right order'}>{selected.length > 1 ? 'Tidy selection' : 'Tidy up'}</button>
         {undoPos && <button className="btn" onClick={undoTidy} title="Put the nodes back where they were">Undo tidy</button>}
         <button className="btn" onClick={save} disabled={busy}>Save</button>
         <button className="btn pri" onClick={run} disabled={busy}>Run</button>
@@ -422,9 +488,22 @@ function Editor() {
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={nodeTypes} colorMode={theme} attributionPosition="top-right"
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} isValidConnection={isValidConnection}
-            onNodeClick={(_, n) => { setSel(n.id); setOpen(true); }} onPaneClick={() => setSel(null)}
+            onNodeClick={(e, n) => {
+              if (e.shiftKey || e.ctrlKey || e.metaKey) return; // building a selection, not opening a node
+              if (selected.length > 1 && n.selected) return;
+              setSel(n.id); setOpen(true);
+            }}
+            onNodeDoubleClick={(_, n) => { setSel(n.id); setOpen(true); }} onPaneClick={() => setSel(null)}
             fitView fitViewOptions={{ maxZoom: 1 }} deleteKeyCode={['Backspace', 'Delete']}
+            selectionOnDrag={mode === 'select'} panOnDrag={mode === 'select' ? [1, 2] : true} selectionMode={SelectionMode.Partial}
+            multiSelectionKeyCode={['Meta', 'Control']} selectNodesOnDrag={false}
           >
+            <Panel position="top-left">
+              <div className="modebar" role="group" aria-label="Canvas mode">
+                <button className={mode === 'select' ? 'on' : ''} onClick={() => setMode('select')} title="Drag on empty canvas to select several nodes. Pan with the middle or right mouse button, or Space + drag.">Select</button>
+                <button className={mode === 'pan' ? 'on' : ''} onClick={() => setMode('pan')} title="Drag on empty canvas to move around. Hold Shift and drag to select.">Pan</button>
+              </div>
+            </Panel>
             <Background gap={22} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable />

@@ -6,6 +6,13 @@ import { agentRun } from './agent';
 import { telegramAction } from './telegramOps';
 import { compare } from './util';
 import { extraRunners } from './extra';
+import { extraRunners2 } from './extra2';
+import { googleRunners } from './google';
+import { emailRunners } from './email';
+import { dataRunners } from './dataNodes';
+import { gmailRunners } from './gmail';
+import { bloggerRunners } from './blogger';
+import { mcpRunners } from './mcpNode';
 
 /** A sub-node plugged into an agent socket. */
 export type Sub = { type: string; name: string; params: Record<string, any>; cred: Record<string, any> | null };
@@ -221,31 +228,25 @@ export const runners: Record<string, Runner> = {
     return [out];
   },
 
-  async email(c) {
-    const key = need(c, 'apiKey', 'Resend');
-    const out: Item[] = [];
-    for (let i = 0; i < c.items.length; i++) {
-      const r = await postJson('https://api.resend.com/emails', { Authorization: `Bearer ${key}` }, {
-        from: c.param('from', i), to: String(c.param('to', i)).split(',').map((s) => s.trim()),
-        subject: c.param('subject', i), html: c.param('html', i),
-      }, 'Resend');
-      out.push({ json: { id: r?.id } });
-    }
-    return [out];
-  },
-
   agent: agentRun,
   aichat: async (c) => aiRun(c, false),
   aiextract: async (c) => aiRun(c, true),
   openai: async (c) => aiRun(c, false),
   anthropic: async (c) => aiRun(c, false),
   ...extraRunners,
+  ...extraRunners2,
+  ...googleRunners,
+  ...emailRunners,
+  ...dataRunners,
+  ...gmailRunners,
+  ...bloggerRunners,
+  ...mcpRunners,
 };
 
 // ---- AI ----
 type AiOpts = { model: string; system: string; prompt: string; temperature?: number; maxTokens?: number };
 
-async function aiComplete(cred: Record<string, any> | null, o: AiOpts): Promise<string> {
+export async function aiComplete(cred: Record<string, any> | null, o: AiOpts): Promise<string> {
   if (!cred) throw new Error('Select an AI credential on this node');
   const def = CREDENTIAL_TYPES.find((t) => t.type === cred.type);
   const model = o.model || def?.models?.[0];
