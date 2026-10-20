@@ -3,7 +3,7 @@
 Light n8n-style automation for Vercel. Next.js + React Flow + Supabase.
 
 ## Setup
-1. Supabase: run `supabase/schema.sql` in the SQL editor. Updating? Run it again. It is safe to repeat, and it adds the `chat_memory` table.
+1. Supabase: run `supabase/schema.sql` in the SQL editor. Updating? Run it again. It is safe to repeat, and it adds the `chat_memory` and `api_keys` tables.
 2. `cp .env.example .env.local` and fill every value.
 3. `npm i && npm run dev`
 4. Deploy: push to GitHub, import in Vercel, add the same env vars.
@@ -44,6 +44,58 @@ Light n8n-style automation for Vercel. Next.js + React Flow + Supabase.
 - HTTP Request Tool: the host must be fixed. Only the path and query take `{placeholders}`, and the values are URL-encoded.
 - The agent output is `{ output }`. Turn on "Return tool steps" to also get the tool calls.
 - The agent stops after 50 seconds or "Max tool rounds" (default 8).
+
+## API and MCP (for n8n, AI agents and scripts)
+Flowlite can be driven from outside: a REST API and an MCP server, both protected by API keys.
+
+1. Run `supabase/schema.sql` again (adds the `api_keys` table).
+2. Open **API & MCP** in the top bar and create a key. It is shown once; only a hash is stored.
+   - **Read**: list workflows and runs. **Run**: read + start workflows. **Full**: also create, edit, activate and delete.
+   - Optional expiry. Delete a key to cut access at once.
+3. Send it as `Authorization: Bearer fl_...` (or `X-API-Key: fl_...`).
+
+External tools need a public https address (same as Telegram: deploy, or use a tunnel and set `PUBLIC_URL`).
+
+### MCP server: `POST /api/mcp`
+Streamable HTTP, stateless, no extra setup. Tools shown depend on the key's access.
+- Read: `list_workflows`, `get_workflow`, `get_execution`, `list_executions`, `list_node_types`, `describe_node_type`, `list_credentials`
+- Run: `run_workflow` (`input`, `wait`, `start_node_id`)
+- Full: `create_workflow`, `update_workflow`, `set_workflow_active`, `delete_workflow`
+
+An agent can build a workflow itself: `list_node_types` → `describe_node_type` → `list_credentials` → `create_workflow` → `run_workflow` → `get_execution`. The server sends the graph format as instructions, and `create_workflow` validates it (unknown node types, bad connections, loops, wrong agent sockets) and returns precise errors.
+
+- **n8n**: add an *MCP Client Tool* node to an AI Agent. Endpoint `https://YOUR-APP/api/mcp`, transport *HTTP Streamable*, Bearer auth with your key.
+- **Claude Code**: `claude mcp add --transport http flowlite https://YOUR-APP/api/mcp --header "Authorization: Bearer fl_..."`
+- **Claude Desktop / Cursor**: use the `mcp-remote` bridge (the API page shows the exact JSON).
+
+### REST API: `/api/v1`
+OpenAPI file (public): `/api/v1/openapi.json`. Import it into n8n, Postman or an agent framework.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/v1/ping` | read |
+| GET, POST | `/api/v1/workflows` | read, full |
+| GET, PUT/PATCH, DELETE | `/api/v1/workflows/{id}` | read, full, full |
+| POST | `/api/v1/workflows/{id}/run` | run |
+| POST | `/api/v1/workflows/{id}/activate`, `/deactivate` | full |
+| GET | `/api/v1/executions?workflowId=&status=&limit=` | read |
+| GET | `/api/v1/executions/{id}?full=true` | read |
+| GET | `/api/v1/node-types?group=&search=`, `/api/v1/node-types/{type}` | read |
+| GET | `/api/v1/credentials` (names and ids only, never secrets) | read |
+
+Run a workflow from n8n's HTTP Request node:
+```
+POST /api/v1/workflows/<id>/run
+Authorization: Bearer fl_...
+{ "input": { "name": "Ada", "email": "ada@example.com" } }
+```
+Reply: `{ executionId, status, output: [...], nodes: [{ id, name, status, ms }] }`. A failed workflow still returns HTTP 200 with `status: "error"` and `error`, so the caller can read it. HTTP errors (401, 403, 400, 404) are for bad requests.
+
+`input` becomes the trigger data: Webhook = request body (`$json.body`), Chat = `{ message, sessionId }`, Form = the field values, Manual and others = `$json`.
+
+Runs longer than a few seconds: send `"wait": false`. You get `{ executionId, status: "running" }` at once; poll `GET /api/v1/executions/{executionId}` until `status` is `success` or `error`. A run must still finish within 60 seconds. API and MCP runs show as `api` and `mcp` in the Executions tab.
+
+Security notes: keys are random 256-bit values, stored as SHA-256 hashes. The admin login cookie does not work on `/api/v1` or `/api/mcp`, and keys do not work on the editor. Credentials are never returned. Give Full access only to agents you trust: workflows can send email and call APIs with your saved credentials, and the Code node is not a hard sandbox.
 
 ## Triggers
 - Webhook, GitHub, Stripe: `/api/webhook/<path>`. Workflow must be Active.

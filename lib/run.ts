@@ -13,7 +13,7 @@ function trim(res: ExecResult) {
 }
 
 /** Runs a workflow and records the execution. Never throws. */
-export async function executeAndStore(wf: Wf, o: { startNodeId?: string; triggerItems?: Item[]; mode: string }) {
+export async function executeAndStore(wf: Wf, o: { startNodeId?: string; triggerItems?: Item[]; mode: string; /** Finish a row that was inserted earlier as "running" instead of adding a new one. */ executionId?: string }) {
   const started = new Date().toISOString();
   const start = wf.nodes.find((n) => n.id === o.startNodeId) ?? wf.nodes.find((n) => getDef(n.type)?.group === 'trigger');
   let triggerItems = o.triggerItems;
@@ -26,9 +26,15 @@ export async function executeAndStore(wf: Wf, o: { startNodeId?: string; trigger
   } catch (e: any) {
     res = { status: 'error', error: e.message, results: {}, order: [] };
   }
-  const { data } = await db().from('executions').insert({
+  const row = {
     workflow_id: wf.id, workflow_name: wf.name, status: res.status, mode: o.mode,
     error: res.error ?? null, data: trim(res), started_at: started, finished_at: new Date().toISOString(),
-  }).select('id').single();
+  };
+  if (o.executionId) {
+    const { started_at: _keep, ...patch } = row;
+    await db().from('executions').update(patch).eq('id', o.executionId);
+    return { ...res, executionId: o.executionId };
+  }
+  const { data } = await db().from('executions').insert(row).select('id').single();
   return { ...res, executionId: data?.id as string | undefined };
 }

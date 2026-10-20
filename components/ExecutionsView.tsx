@@ -59,7 +59,7 @@ export default function ExecutionsView({ workflowId, nodes, edges, theme }: {
         {list?.map((x) => (
           <button key={x.id} className={`ex-item ${x.status} ${x.id === exec?.id ? 'on' : ''}`} onClick={() => { setPick(x.id); setLogNode(null); }}>
             <b>{fmt(x.started_at)}</b>
-            <span className="mute">{x.status === 'success' ? 'Succeeded' : 'Failed'} in {ms(x)}ms · {x.mode}</span>
+            <span className="mute">{x.status === 'success' ? 'Succeeded' : x.status === 'running' ? 'Running' : 'Failed'} in {ms(x)}ms · {x.mode}</span>
           </button>
         ))}
       </aside>
@@ -69,7 +69,7 @@ export default function ExecutionsView({ workflowId, nodes, edges, theme }: {
           <>
             <div className="ex-title">
               <b>{fmt(exec.started_at)}</b>{' '}
-              <span className={exec.status === 'success' ? 'ok-text' : 'err-text'}>{exec.status === 'success' ? 'Succeeded' : 'Failed'}</span>
+              <span className={exec.status === 'success' ? 'ok-text' : exec.status === 'running' ? 'mute' : 'err-text'}>{exec.status === 'success' ? 'Succeeded' : exec.status === 'running' ? 'Running' : 'Failed'}</span>
               <span className="mute"> in {ms(exec)}ms · {exec.mode} · {exec.id.slice(0, 8)}</span>
               {exec.error && <div className="err-text">{exec.error}</div>}
             </div>

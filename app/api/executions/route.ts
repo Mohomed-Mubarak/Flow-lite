@@ -1,5 +1,6 @@
 import { guard } from '@/lib/api';
 import { db } from '@/lib/supabase';
+import { norm } from '@/lib/service';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +10,7 @@ async function _GET(req: Request) {
   if (wf) q = q.eq('workflow_id', wf);
   const { data, error } = await q;
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json(data);
+  return Response.json((data || []).map(norm));
 }
 
 export const GET = guard(_GET);

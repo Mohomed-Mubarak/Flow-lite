@@ -7,6 +7,7 @@ const links = [
   { href: '/', label: 'Workflows' },
   { href: '/credentials', label: 'Credentials' },
   { href: '/executions', label: 'Executions' },
+  { href: '/api-access', label: 'API & MCP' },
 ];
 
 export default function Nav() {

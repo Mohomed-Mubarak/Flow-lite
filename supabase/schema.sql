@@ -42,8 +42,21 @@ create table if not exists chat_memory (
 );
 create index if not exists chat_memory_session_idx on chat_memory (workflow_id, session_id, id desc);
 
+-- API keys for external agents (REST API and MCP server). Only a SHA-256 hash is stored.
+create table if not exists api_keys (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  key_hash text not null unique,
+  prefix text not null,
+  scope text not null default 'full' check (scope in ('read', 'run', 'full')),
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  expires_at timestamptz
+);
+
 -- Server uses the service-role key; lock everything else out.
 alter table workflows enable row level security;
 alter table credentials enable row level security;
 alter table executions enable row level security;
 alter table chat_memory enable row level security;
+alter table api_keys enable row level security;
