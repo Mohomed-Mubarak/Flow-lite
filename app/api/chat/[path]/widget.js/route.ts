@@ -13,6 +13,7 @@ function widgetJs(chatUrl: string): string {
   ready(function () {
     var open = false;
     var btn = d.createElement('button');
+    btn.type = 'button'; // a <button> defaults to type=submit; without this it could submit a form on the host page
     btn.setAttribute('aria-label', 'Open chat');
     btn.setAttribute('aria-expanded', 'false');
     btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
@@ -41,7 +42,7 @@ async function _GET(req: Request, ctx: { params: Promise<{ path: string }> }) {
   const origin = new URL(req.url).origin;
   const chatUrl = `${origin}/chat/${encodeURIComponent(path)}`;
   return new Response(widgetJs(chatUrl), {
-    headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300', 'access-control-allow-origin': '*' },
+    headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' },
   });
 }
 

@@ -18,6 +18,10 @@ import CredentialForm from '@/components/CredentialForm';
 import { preview as previewExpr, type Preview } from '@/lib/preview';
 import { tidyLayout, type Pos } from '@/lib/layout';
 
+// Mirrors lib/triggers.ts's cleanPath (not imported directly: that file pulls in node:crypto, which breaks a
+// client bundle). The server matches incoming requests against this — a URL shown without it can 404.
+const cleanPath = (p: unknown) => String(p || '').replace(/^\/+|\/+$/g, '');
+
 // Clipboard is mirrored to localStorage so Copy in one workflow can Paste into another (or a later visit).
 const CLIP_KEY = 'flowlite-clipboard';
 type Clip = { nodes: Node[]; edges: Edge[] };
@@ -688,12 +692,12 @@ function Editor() {
               ))}
               <datalist id="model-list">{modelOptions.map((m) => <option key={m} value={m} />)}</datalist>
               {def.urlPrefix && typeof window !== 'undefined' && (
-                <div className="note">Live URL:<br /><span className="mono">{window.location.origin}{def.urlPrefix}{d.params.path || ''}</span>
+                <div className="note">Live URL:<br /><span className="mono">{window.location.origin}{def.urlPrefix}{encodeURIComponent(cleanPath(d.params.path))}</span>
                   <div className="mute">Works after you turn the workflow Active.</div></div>
               )}
               {def.type === 'chatTrigger' && d.params.public === true && typeof window !== 'undefined' && (() => {
                 const origin = window.location.origin;
-                const path = d.params.path || 'chat';
+                const path = encodeURIComponent(cleanPath(d.params.path) || 'chat');
                 const chatUrl = `${origin}/chat/${path}`;
                 const scriptTag = `<script src="${origin}/api/chat/${path}/widget.js" async></script>`;
                 const iframeTag = `<iframe src="${chatUrl}" style="width:100%;max-width:400px;height:600px;border:0;border-radius:14px" title="Chat"></iframe>`;

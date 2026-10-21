@@ -6,12 +6,15 @@ import { CREDENTIAL_TYPES } from './catalog';
 import type { Ctx, Runner, Sub } from './runners';
 
 function need(cred: Record<string, any> | null, what: string): Record<string, any> {
-  if (!cred) throw new Error(`Select an AI credential for ${what} on this node`);
+  if (!cred) throw new Error(`Select an AI credential for ${what}`);
   return cred;
 }
 
-function vecError(e: { message: string }): Error {
-  return /vector_documents|relation .* does not exist|type "?vector"?|extension "?vector"?|function match_vector_documents/i.test(e.message)
+/** Postgres error codes for "the table/function/extension isn't there yet" — checked before the message text, which can otherwise false-match on ordinary errors (e.g. a null-constraint message that happens to mention "vector_documents"). */
+const MISSING_CODES = new Set(['42P01', '42883', '42704']);
+function vecError(e: { message: string; code?: string }): Error {
+  const missing = (e.code && MISSING_CODES.has(e.code)) || /relation ".*" does not exist|function match_vector_documents.* does not exist|type "vector" does not exist/i.test(e.message);
+  return missing
     ? new Error('The knowledge base table is missing. Run the vector_documents part of supabase/schema.sql in Supabase (it also enables the pgvector extension).')
     : new Error('Knowledge base: ' + e.message);
 }
@@ -25,7 +28,9 @@ export async function embed(cred: Record<string, any>, model: string, inputs: st
   if (!inputs.length) return [];
   if (cred.type === 'anthropic') throw new Error('Claude has no embeddings API. Pick a different AI credential for embeddings (OpenAI, Gemini, Mistral, NVIDIA NIM, DeepSeek, Hugging Face or Ollama all work).');
   const def = CREDENTIAL_TYPES.find((t) => t.type === cred.type);
-  const m = String(model || def?.models?.[0] || '').trim();
+  // No fallback to def.models[0] here on purpose: those are chat-model defaults (e.g. Groq's llama-3.3-70b-versatile),
+  // not embeddings models, and silently trying one produces a confusing provider error instead of a clear ask.
+  const m = String(model || '').trim();
   if (!m) throw new Error('Enter an embedding model name, e.g. text-embedding-3-small (OpenAI), text-embedding-004 (Gemini), mistral-embed (Mistral).');
   const base = String(cred.baseUrl || def?.baseUrl || '').replace(/\/+$/, '');
   if (!base) throw new Error('This credential has no base URL');
@@ -65,30 +70,36 @@ export function chunkText(text: string, size = 1000, overlap = 150): string[] {
 
 export const ragRunners: Record<string, Runner> = {
   async vectorStore(c) {
-    const store = String(c.raw('store') || '').trim();
-    if (!store) throw new Error('Enter a store name');
     if (!c.workflowId) throw new Error('Save the workflow before running this node');
-    const op = String(c.raw('operation') || 'Insert');
+    // operation/store/model go through c.param (not c.raw) like every other resource-identifier field in this
+    // codebase (spreadsheetId, databaseId, baseId...) so {{ }} expressions work, e.g. a per-item store name.
+    const op = String(c.param('operation', 0) || 'Insert');
 
     if (op === 'Clear store') {
+      const store = String(c.param('store', 0) ?? '').trim();
+      if (!store) throw new Error('Enter a store name');
       const { error, count } = await db().from('vector_documents').delete({ count: 'exact' }).eq('workflow_id', c.workflowId).eq('store', store);
       if (error) throw vecError(error);
       return [[{ json: { store, cleared: count ?? 0 } }]];
     }
 
-    const cred = need(c.cred, 'Vector Store');
-    const model = String(c.raw('model') || '');
+    const cred = need(c.cred, 'the Vector Store node');
+    const model = String(c.param('model', 0) || '');
     const size = Math.max(200, Math.min(4000, Number(c.raw('chunkSize')) || 1000));
     const overlap = Math.max(0, Math.min(size - 50, Number(c.raw('chunkOverlap')) || 150));
     const rows: { workflow_id: string; store: string; content: string; metadata: any; embedding: any }[] = [];
+    const stores = new Set<string>();
 
     for (let i = 0; i < c.items.length; i++) {
       const text = String(c.param('text', i) ?? '').trim();
       if (!text) continue;
+      const store = String(c.param('store', i) ?? '').trim();
+      if (!store) throw new Error(`Enter a store name (item ${i + 1})`);
       const meta = c.json('metadata', i);
       const chunks = chunkText(text, size, overlap);
       if (!chunks.length) continue;
       const vectors = await embed(cred, model, chunks);
+      stores.add(store);
       chunks.forEach((content, k) => rows.push({
         workflow_id: c.workflowId!, store, content,
         metadata: meta && typeof meta === 'object' ? meta : {},
@@ -99,7 +110,7 @@ export const ragRunners: Record<string, Runner> = {
       const { error } = await db().from('vector_documents').insert(rows);
       if (error) throw vecError(error);
     }
-    return [[{ json: { store, chunksInserted: rows.length } }]];
+    return [[{ json: { stores: [...stores], chunksInserted: rows.length } }]];
   },
 };
 
@@ -108,7 +119,7 @@ export function knowledgeBaseTool(s: Sub, scope: Scope, workflowId: string | und
   const store = String(resolve(s.params.store ?? '', scope) ?? '').trim();
   if (!store) throw new Error(`${s.name}: enter a store name`);
   if (!workflowId) throw new Error(`${s.name}: save the workflow before running the agent`);
-  const cred = need(s.cred, 'Knowledge Base');
+  const cred = need(s.cred, 'the Knowledge Base Tool');
   const model = String(resolve(s.params.model ?? '', scope) ?? '');
   const topK = Math.min(20, Math.max(1, Number(s.params.topK) || 4));
   return {
